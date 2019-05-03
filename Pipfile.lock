@@ -1,0 +1,25 @@
+{
+    "_meta": {
+        "hash": {
+            "sha256": "6a4ab02c86374f9f77022aa6d78ef440ba966fdba08eccadcbc5b95991977c86"
+        },
+        "pipfile-spec": 6,
+        "requires": {
+            "python_version": "3.7"
+        },
+        "sources": [
+            {
+                "name": "pypi",
+                "url": "https://pypi.org/pyng",
+                "verify_ssl": true
+            }
+        ]
+    },
+    "default": {
+        "pyng": {
+            "editable": true,
+            "path": "."
+        }
+    },
+    "develop": {}
+}
