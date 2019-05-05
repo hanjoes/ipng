@@ -3,7 +3,7 @@ import zlib
 from filter import FILTER_TYPE_TO_FUNC
 
 
-class PyNG():
+class PNG:
     """
     Reference: https://tools.ietf.org/html/rfc2083#section-3
 
@@ -83,6 +83,46 @@ class PyNG():
         6: 4
     }
 
+    def __init__(self, file, process):
+        self._heading = bytearray()
+        self._file = file
+        self._chunk_ordering_list = []
+        self._chunk_hist = {}
+        self._data = bytearray(b'')
+        self._pixel_size = 0
+
+        self.bitmap = []
+        self.metadata = None
+
+        self._validate()
+        self._analyze()
+        self._process = process
+
+    def render(self, output):
+        # Handle scanlines
+        # given each scanline is prepended with 1 byte of the filter
+        # method before compressing, number of bytes each scanline for
+        # the image itself is really:
+        #
+        # len(decompressed)/height - 1
+        #
+        # which is equal to:
+        #
+        # width * number of samples per pixel * bit depth / 8
+        bpp = int(self._pixel_size / 8)
+        real_scanline_len = len(self.bitmap[0])
+
+        output_bitmap = self.bitmap
+        if self._process:
+            output_bitmap = self._process(output_bitmap)
+
+        filtered_image = self._filter_image(bpp, output_bitmap, real_scanline_len)
+
+        # compress updated image, the compress method with default parameters seem to work well for PNG standard
+        compressed = zlib.compress(filtered_image)
+
+        self._rebuild_image(compressed, output)
+
     def _chunk_hist_str_ordered(self):
         result_list = []
         for chunk_name in self._chunk_ordering_list:
@@ -111,7 +151,7 @@ class PyNG():
             if chunk_type == 'IEND':
                 break
 
-        print(f'{"chunk hist:":20}{self._chunk_hist_str_ordered()}')
+        self.metadata = f'{self.metadata}\n{"chunk histogram:":20}{self._chunk_hist_str_ordered()}'
 
         # Deflate-compressed datastreams within PNG are stored in the "zlib"
         # format, which has the structure:
@@ -123,10 +163,11 @@ class PyNG():
         method_flag = self._data[0]
         additional = self._data[1]
         check = self._data[-4]
-        print(f'{"compression spec:":20}'
-              f'method/flag:{method_flag},',
-              f'additional:{additional},'
-              f'check:{check},')
+        self.metadata = f'{self.metadata}\n' \
+            f'{"compression spec:":20}' \
+            f'method/flag:{method_flag},' \
+            f'additional:{additional},' \
+            f'check:{check}'
 
         decompressed = zlib.decompress(self._data)
 
@@ -143,38 +184,33 @@ class PyNG():
         bpp = int(self._pixel_size / 8)
         scanline_len = int(len(decompressed) / self._height)
 
-        recovered_image = self.recover_image(bpp, decompressed, scanline_len)
-        filtered_image = self.filter_image(bpp, recovered_image, scanline_len)
+        self.bitmap = self._recover_image(bpp, decompressed, scanline_len)
 
-        self._check_filter_result(filtered_image, decompressed, scanline_len)
-
-        # compress updated image, the compress method with default parameters seem to work well for PNG standard
-        compressed = zlib.compress(filtered_image)
-
-        self._rebuild_image(compressed)
-
-    def filter_image(self, bpp, recovered_image, scanline_len):
+    def _filter_image(self, bpp, bitmap, real_scanline_len):
         filtered_image = bytearray()
         previous_line = None
         for i in range(self._height):
-            updated_scanline = bytearray(scanline_len)
-            updated_scanline[:] = recovered_image[i * scanline_len:(i + 1) * scanline_len]
-            filter_type = updated_scanline[0]
+            updated_scanline = bytearray(real_scanline_len + 1)
+            updated_scanline[:] = bitmap[i]
+            filter_type = b'\x01' # TODO: auto choose
+            updated_scanline[0:0] = bytearray(filter_type)
             previous_line_cache = updated_scanline
-            updated_scanline = FILTER_TYPE_TO_FUNC[filter_type][0](updated_scanline, previous_line, bpp)
+            updated_scanline = FILTER_TYPE_TO_FUNC[filter_type[0]][0](updated_scanline, previous_line, bpp)
             filtered_image.extend(updated_scanline)
             previous_line = previous_line_cache
         return filtered_image
 
-    def recover_image(self, bpp, decompressed, scanline_len):
-        recovered_image = bytearray()
+    def _recover_image(self, bpp, decompressed, scanline_len):
+        recovered_image = []
         previous_line = None
         for i in range(self._height):
             scanline_copy = bytearray(scanline_len)
             scanline_copy[:] = decompressed[i * scanline_len:(i + 1) * scanline_len]
             filter_type = scanline_copy[0]
             scanline_copy = FILTER_TYPE_TO_FUNC[filter_type][1](scanline_copy, previous_line, bpp)
-            recovered_image.extend(scanline_copy)
+            recovered_scanline = bytearray()
+            recovered_scanline[:] = scanline_copy[1:]
+            recovered_image.append(recovered_scanline)
             previous_line = scanline_copy
         return recovered_image
 
@@ -189,8 +225,11 @@ class PyNG():
                     raise ArithmeticError(f'filtering error happened in row: {i} with filter type '
                                           f'{current_decompressed_row[0]}')
 
-    def _rebuild_image(self, updated_data):
-        with open(self._output, 'wb') as of:
+    def _rebuild_image(self, updated_data, output):
+        if not output:
+            return
+
+        with open(output, 'wb') as of:
             of.write(self._heading)
             for chunk_name in self._chunk_ordering_list:
                 chunk = self._chunk_hist[chunk_name]
@@ -198,7 +237,7 @@ class PyNG():
                 if chunk_name != 'IDAT':
                     of.write(raw)
                 else:
-                    PyNG._write_idat(of, updated_data)
+                    PNG._write_idat(of, updated_data)
 
     def _validate(self):
         with open(self._file, 'rb') as pic_f:
@@ -239,20 +278,15 @@ class PyNG():
         self._filter_method = int.from_bytes(header_bytes[11:12], 'big')
         self._interlace_method = int.from_bytes(header_bytes[12:13], 'big')
         self._pixel_size = self.COLOR_TYPE_TO_NUM_SAMPLE[self._color_type] * self._bit_depth
-        print(f'{"basic spec:":20}'
-              f'width:{self._width},'
-              f'height:{self._height},'
-              f'bit_depth:{self._bit_depth},'
-              f'color_type:{self._color_type},'
-              f'pixel_size(bit):{self._pixel_size},'
-              f'compression:{self._compression_method},'
-              f'filter:{self._filter_method},'
-              f'interlace:{self._interlace_method}')
-        self._calculate_pixel_size()
-
-    def _calculate_pixel_size(self):
-        sample_count = PyNG.SAMPLE_NUM_LOOKUP[self._color_type]
-        return sample_count * self._bit_depth / 8
+        self.metadata = f'{"basic spec:":20}' \
+            f'width:{self._width},' \
+            f'height:{self._height},' \
+            f'bit_depth:{self._bit_depth},' \
+            f'color_type:{self._color_type},' \
+            f'pixel_size(bit):{self._pixel_size},' \
+            f'compression:{self._compression_method},' \
+            f'filter:{self._filter_method},' \
+            f'interlace:{self._interlace_method}'
 
     @staticmethod
     def _read_one_chunk(pic_f):
@@ -315,9 +349,9 @@ class PyNG():
         # remarkably wasteful of space.  (For that matter, zero-length
         # IDAT chunks are legal, though even more wasteful.)
         while not end:
-            if len(leftover_data) > PyNG.IDAT_CHUNK_SIZE:
-                current_chunk = leftover_data[0:PyNG.IDAT_CHUNK_SIZE]
-                leftover_data = leftover_data[PyNG.IDAT_CHUNK_SIZE:]
+            if len(leftover_data) > PNG.IDAT_CHUNK_SIZE:
+                current_chunk = leftover_data[0:PNG.IDAT_CHUNK_SIZE]
+                leftover_data = leftover_data[PNG.IDAT_CHUNK_SIZE:]
             else:
                 current_chunk = leftover_data
                 end = True

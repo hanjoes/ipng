@@ -154,21 +154,18 @@ def avg_reverse(current, previous, bpp):
     return current
 
 
-def paeth_predictor(a, b, c):
-    p = a + b - c
-    pa = abs(p - a)
-    pb = abs(p - b)
-    pc = abs(p - c)
-
-    if pa <= pb and pa <= pc:
-        return a
-    elif pb <= pc:
-        return b
-    else:
-        return c
-
-
 def paeth(current, previous, bpp):
+    """
+    To compute the Paeth filter, apply the following formula to each
+    byte of the scanline:
+
+       Paeth(x) = Raw(x) - PaethPredictor(Raw(x-bpp), Prior(x), Prior(x-bpp))
+
+    :param current: byte array representing current scanline.
+    :param previous: byte array representing the previous scanline (not used by this filter type)
+    :param bpp: bytes per pixel
+    :return: filtered byte array
+    """
     result = bytearray(len(current))
     for x in range(len(current)):
         if x == 0:
@@ -185,6 +182,17 @@ def paeth(current, previous, bpp):
 
 
 def paeth_reverse(current, previous, bpp):
+    """
+    To reverse the effect of the Paeth filter after decompression,
+    output the following value:
+
+       Paeth(x) + PaethPredictor(Raw(x-bpp), Prior(x), Prior(x-bpp))
+
+    :param current: byte array representing current scanline.
+    :param previous: byte array representing the previous scanline (not used by this filter type)
+    :param bpp: bytes per pixel
+    :return: reverse-filtered byte array
+    """
     for x in range(len(current)):
         if x == 0:
             if current[0] != 4:
@@ -196,6 +204,28 @@ def paeth_reverse(current, previous, bpp):
         upper_left = previous[x - bpp] if x - bpp > 0 and previous else 0
         current[x] = (current[x] + paeth_predictor(left, above, upper_left)) % 256
     return current
+
+
+def paeth_predictor(a, b, c):
+    """
+    The "paeth predictor" used for paeth filter.
+
+    :param a: left
+    :param b: above
+    :param c: upper-left
+    :return: predicted value
+    """
+    p = a + b - c
+    pa = abs(p - a)
+    pb = abs(p - b)
+    pc = abs(p - c)
+
+    if pa <= pb and pa <= pc:
+        return a
+    elif pb <= pc:
+        return b
+    else:
+        return c
 
 
 # PNG filter method 0 defines five basic filter types:
