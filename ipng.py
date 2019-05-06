@@ -83,7 +83,7 @@ class PNG:
         6: 4
     }
 
-    def __init__(self, file, process):
+    def __init__(self, file):
         self._heading = bytearray()
         self._file = file
         self._chunk_ordering_list = []
@@ -95,9 +95,14 @@ class PNG:
 
         self._validate()
         self._analyze()
-        self._process = process
 
     def render(self, output):
+        """
+        Renders the image including the processing function, save to the output file.
+        :param output: path to the output file
+        :return: None
+        """
+
         # Handle scanlines
         # given each scanline is prepended with 1 byte of the filter
         # method before compressing, number of bytes each scanline for
@@ -111,11 +116,7 @@ class PNG:
         bpp = int(self.pixel_size_in_bit / 8)
         real_scanline_len = len(self.bitmap[0])
 
-        output_bitmap = self.bitmap
-        if self._process:
-            output_bitmap = self._process(output_bitmap)
-
-        filtered_image = self._filter_image(bpp, output_bitmap, real_scanline_len)
+        filtered_image = self._filter_image(bpp, self.bitmap, real_scanline_len)
 
         # compress updated image, the compress method with default parameters seem to work well for PNG standard
         compressed = zlib.compress(filtered_image)
