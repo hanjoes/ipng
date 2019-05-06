@@ -5,7 +5,7 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
     name="ipng",
-    version="0.0.3",
+    version="0.0.4",
     author="hanjoes",
     author_email="hanzhou87@gmail.com",
     description="Intuitive PNG library.",

@@ -89,7 +89,6 @@ class PNG:
         self._chunk_ordering_list = []
         self._chunk_hist = {}
         self._data = bytearray(b'')
-        self._pixel_size = 0
 
         self.bitmap = []
         self.metadata = None
@@ -109,7 +108,7 @@ class PNG:
         # which is equal to:
         #
         # width * number of samples per pixel * bit depth / 8
-        bpp = int(self._pixel_size / 8)
+        bpp = int(self.pixel_size_in_bit / 8)
         real_scanline_len = len(self.bitmap[0])
 
         output_bitmap = self.bitmap
@@ -181,15 +180,15 @@ class PNG:
         # which is equal to:
         #
         # width * number of samples per pixel * bit depth / 8
-        bpp = int(self._pixel_size / 8)
-        scanline_len = int(len(decompressed) / self._height)
+        bpp = int(self.pixel_size_in_bit / 8)
+        scanline_len = int(len(decompressed) / self.height)
 
         self.bitmap = self._recover_image(bpp, decompressed, scanline_len)
 
     def _filter_image(self, bpp, bitmap, real_scanline_len):
         filtered_image = bytearray()
         previous_line = None
-        for i in range(self._height):
+        for i in range(self.height):
             updated_scanline = bytearray(real_scanline_len + 1)
             updated_scanline[:] = bitmap[i]
             filter_type = b'\x01' # TODO: auto choose
@@ -203,7 +202,7 @@ class PNG:
     def _recover_image(self, bpp, decompressed, scanline_len):
         recovered_image = []
         previous_line = None
-        for i in range(self._height):
+        for i in range(self.height):
             scanline_copy = bytearray(scanline_len)
             scanline_copy[:] = decompressed[i * scanline_len:(i + 1) * scanline_len]
             filter_type = scanline_copy[0]
@@ -216,7 +215,7 @@ class PNG:
 
     def _check_filter_result(self, filtered_image, decompressed, scanline_len):
         if filtered_image != decompressed:
-            for i in range(self._height):
+            for i in range(self.height):
                 beg = i * scanline_len
                 end = (i + 1) * scanline_len
                 current_decompressed_row = decompressed[beg:end]
@@ -253,40 +252,33 @@ class PNG:
         # The IHDR chunk must appear FIRST.  It contains:
         #
         # Width:              4 bytes
-        self._width = 0
         # Height:             4 bytes
-        self._height = 0
         # Bit depth:          1 byte
-        self._bit_depth = 0
         # Color type:         1 byte (1 is not a valid value)
-        self._color_type = 1
         # Compression method: 1 byte (only 0 is a valid value)
-        self._compression_method = 0
         # Filter method:      1 byte (only 0 is a valid value)
-        self._filter_method = 0
         # Interlace method:   1 byte (0 or 1 are valid values)
-        self._interlace_method = -1
 
         if length != 13:
             raise IOError(f'IHDR chunk must be 13 bytes, {length} found.')
 
-        self._width = int.from_bytes(header_bytes[0:4], 'big')
-        self._height = int.from_bytes(header_bytes[4:8], 'big')
-        self._bit_depth = int.from_bytes(header_bytes[8:9], 'big')
-        self._color_type = int.from_bytes(header_bytes[9:10], 'big')
-        self._compression_method = int.from_bytes(header_bytes[10:11], 'big')
-        self._filter_method = int.from_bytes(header_bytes[11:12], 'big')
-        self._interlace_method = int.from_bytes(header_bytes[12:13], 'big')
-        self._pixel_size = self.COLOR_TYPE_TO_NUM_SAMPLE[self._color_type] * self._bit_depth
+        self.width = int.from_bytes(header_bytes[0:4], 'big')
+        self.height = int.from_bytes(header_bytes[4:8], 'big')
+        self.bit_depth = int.from_bytes(header_bytes[8:9], 'big')
+        self.color_type = int.from_bytes(header_bytes[9:10], 'big')
+        self.compression = int.from_bytes(header_bytes[10:11], 'big')
+        self.filter = int.from_bytes(header_bytes[11:12], 'big')
+        self.interlace = int.from_bytes(header_bytes[12:13], 'big')
+        self.pixel_size_in_bit = self.COLOR_TYPE_TO_NUM_SAMPLE[self.color_type] * self.bit_depth
         self.metadata = f'{"basic spec:":20}' \
-            f'width:{self._width},' \
-            f'height:{self._height},' \
-            f'bit_depth:{self._bit_depth},' \
-            f'color_type:{self._color_type},' \
-            f'pixel_size(bit):{self._pixel_size},' \
-            f'compression:{self._compression_method},' \
-            f'filter:{self._filter_method},' \
-            f'interlace:{self._interlace_method}'
+            f'width:{self.width},' \
+            f'height:{self.height},' \
+            f'bit_depth:{self.bit_depth},' \
+            f'color_type:{self.color_type},' \
+            f'pixel_size(bit):{self.pixel_size_in_bit},' \
+            f'compression:{self.compression},' \
+            f'filter:{self.filter},' \
+            f'interlace:{self.interlace}'
 
     @staticmethod
     def _read_one_chunk(pic_f):
