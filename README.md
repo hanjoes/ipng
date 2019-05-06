@@ -12,7 +12,7 @@ from binascii import hexlify
 
 def func(bitmap):
     # do anything with the bytearray, here we just print out the 
-    # first 100 bytes of each row
+    # first 50 bytes of each row
     print(hexlify(bitmap)[0:100])
 
 png = PNG(file='path/to/input.png', process=func)
